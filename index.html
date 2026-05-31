@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance News Compiler</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f9f9f9; color: #111827; padding: 24px 16px; }
+.wrap { max-width: 680px; margin: 0 auto; }
+h2 { font-size: 18px; font-weight: 600; }
+.meta { font-size: 13px; color: #6b7280; margin-top: 3px; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 12px; }
+.hright { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+button { cursor: pointer; border-radius: 7px; border: 1px solid #e5e7eb; background: #fff; color: #111827; font-size: 13px; padding: 6px 14px; font-family: inherit; }
+button:disabled { opacity: .4; cursor: default; }
+.bp { background: #1d4ed8; color: #fff; border-color: #1d4ed8; font-weight: 500; }
+.bd { color: #dc2626; }
+.infobox { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 9px 14px; font-size: 13px; color: #1e40af; margin-bottom: 14px; }
+.filters { background: #f3f4f6; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+select, input { font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid #e5e7eb; background: #fff; color: #111827; font-family: inherit; }
+input { flex: 1; min-width: 120px; }
+.cards { display: flex; flex-direction: column; gap: 10px; }
+.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; }
+.card.read { opacity: .55; }
+.cmeta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
+.cdate { font-size: 11px; color: #9ca3af; margin-left: auto; }
+.ctitle { font-weight: 500; font-size: 14px; line-height: 1.4; }
+.cbody { font-size: 13px; color: #6b7280; line-height: 1.6; margin-top: 8px; }
+.ccos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.cactions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.cactions button, .cactions a { font-size: 12px; padding: 4px 10px; }
+.cactions a { border: 1px solid #e5e7eb; border-radius: 6px; text-decoration: none; color: #1d4ed8; }
+.mla { margin-left: auto; }
+.empty { text-align: center; padding: 56px 0; color: #6b7280; font-size: 14px; }
+.authwrap { text-align: center; padding: 64px 0; }
+.authwrap h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+.authwrap p { font-size: 13px; color: #6b7280; margin-bottom: 24px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap"><div id="app"></div></div>
+<script>
+var CLIENT_ID = '352564910579-lum38d0l8apdffcpt6p2c9n7c1oo3400.apps.googleusercontent.com';
+var SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
+var GEMINI_PROXY = 'https://gemini-proxy.luyuhui2224.workers.dev';
+
+var SOURCES = ['CFO Brew', 'Morning Brew', 'Journal of Accountancy', 'AICPA'];
+
+var SRC_Q = {};
+SRC_Q['CFO Brew'] = 'from:cfobrew@morningbrew.com';
+SRC_Q['Morning Brew'] = 'from:crew@morningbrew.com';
+SRC_Q['Journal of Accountancy'] = 'from:no-reply@e2.aicpa-cima.com';
+SRC_Q['AICPA'] = 'from:e2.aicpa.org';
+
+var INDUSTRIES = ['Banking','Private Equity','Insurance','Real Estate','Technology','Healthcare','Energy','Retail'];
+
+var CAT_BG = {};
+CAT_BG['M&A'] = '#E6F1FB';
+CAT_BG['IPO'] = '#EEEDFE';
+CAT_BG['Accounting Standards'] = '#E1F5EE';
+CAT_BG['Earnings'] = '#FAEEDA';
+CAT_BG['Regulatory'] = '#FAECE7';
+CAT_BG['Macro'] = '#EAF3DE';
+CAT_BG['Banking'] = '#FBEAF0';
+CAT_BG['Executive Move'] = '#F1EFE8';
+CAT_BG['Other Finance'] = '#E6F1FB';
+
+var CAT_TEXT = {};
+CAT_TEXT['M&A'] = '#0C447C';
+CAT_TEXT['IPO'] = '#3C3489';
+CAT_TEXT['Accounting Standards'] = '#085041';
+CAT_TEXT['Earnings'] = '#633806';
+CAT_TEXT['Regulatory'] = '#712B13';
+CAT_TEXT['Macro'] = '#27500A';
+CAT_TEXT['Banking'] = '#72243E';
+CAT_TEXT['Executive Move'] = '#444441';
+CAT_TEXT['Other Finance'] = '#185FA5';
+
+var PROMPT = 'You are a financial news extraction assistant. Given email content from finance newsletters, extract ONLY finance and accounting relevant news. Focus on M&A, IPOs, accounting standards updates (FASB, GAAP, IFRS, PCAOB, SEC), earnings, regulatory changes, macro finance news, banking, and CFO or executive moves. Ignore advertisements and non-finance content. Return ONLY a valid JSON array with no markdown and no preamble. Each item in the array must have these fields: headline (string), summary (string of 2 to 3 sentences), category (string, must be one of: M&A, IPO, Accounting Standards, Earnings, Regulatory, Macro, Banking, Executive Move, Other Finance), companies (array of strings), industries (array of strings chosen from: Banking, Private Equity, Insurance, Real Estate, Technology, Healthcare, Energy, Retail), link (string, a URL found in the email or an empty string).';
+
+var st = {
+  token: null,
+  articles: [],
+  lastSync: null,
+  syncing: false,
+  progress: '',
+  fs: 'All',
+  fc: 'All',
+  fi: 'All',
+  fco: '',
+  exp: {},
+  days: 7
+};
+
+function loadSt() {
+  try {
+    var s = localStorage.getItem('fnc7');
+    if (s) { var d = JSON.parse(s); st.articles = d.a || []; st.lastSync = d.ls || null; }
+  } catch(e) {}
+}
+
+function saveSt() {
+  try { localStorage.setItem('fnc7', JSON.stringify({ a: st.articles, ls: st.lastSync })); } catch(e) {}
+}
+
+function mk(tag, cls) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return e;
+}
+
+function tx(s) { return document.createTextNode(String(s)); }
+function clr(e) { while (e.firstChild) e.removeChild(e.firstChild); }
+
+function badge(label, bg, color) {
+  var s = mk('span', 'badge');
+  s.style.background = bg;
+  s.style.color = color;
+  s.appendChild(tx(label));
+  return s;
+}
+
+function mkSelect(opts, val, onch) {
+  var s = document.createElement('select');
+  opts.forEach(function(o) {
+    var op = document.createElement('option');
+    var v = typeof o === 'object' ? o.v : o;
+    var l = typeof o === 'object' ? o.l : o;
+    op.value = v;
+    op.appendChild(tx(l));
+    if (v === val) op.selected = true;
+    s.appendChild(op);
+  });
+  s.onchange = onch;
+  return s;
+}
+
+function renderCard(a) {
+  var exp = !!st.exp[a.id];
+  var bg = CAT_BG[a.category] || '#E6F1FB';
+  var co = CAT_TEXT[a.category] || '#185FA5';
+  var card = mk('div', 'card' + (a.read ? ' read' : ''));
+
+  var cm = mk('div', 'cmeta');
+  cm.appendChild(badge(a.category, bg, co));
+  cm.appendChild(badge(a.source, '#f3f4f6', '#374151'));
+  var dt = mk('span', 'cdate'); dt.appendChild(tx(a.date)); cm.appendChild(dt);
+  card.appendChild(cm);
+
+  var title = mk('p', 'ctitle'); title.appendChild(tx(a.headline)); card.appendChild(title);
+
+  if (exp) {
+    var body = mk('p', 'cbody'); body.appendChild(tx(a.summary)); card.appendChild(body);
+    if (a.companies && a.companies.length) {
+      var ccos = mk('div', 'ccos');
+      a.companies.forEach(function(c) { ccos.appendChild(badge(c, '#f3f4f6', '#374151')); });
+      card.appendChild(ccos);
+    }
+  }
+
+  var actions = mk('div', 'cactions');
+  var tb = mk('button');
+  tb.appendChild(tx(exp ? 'Show less' : 'Show more'));
+  tb.onclick = function() { st.exp[a.id] = !st.exp[a.id]; render(); };
+  actions.appendChild(tb);
+
+  if (a.link) {
+    var lnk = document.createElement('a');
+    lnk.href = a.link; lnk.target = '_blank'; lnk.appendChild(tx('Read article'));
+    actions.appendChild(lnk);
+  }
+
+  var rb = mk('button', 'mla');
+  rb.appendChild(tx(a.read ? 'Mark unread' : 'Mark read'));
+  rb.onclick = function() {
+    st.articles = st.articles.map(function(x) {
+      return x.id === a.id ? Object.assign({}, x, { read: !x.read }) : x;
+    });
+    saveSt(); render();
+  };
+  actions.appendChild(rb);
+  card.appendChild(actions);
+  return card;
+}
+
+function getFiltered() {
+  return st.articles.filter(function(a) {
+    if (st.fs !== 'All' && a.source !== st.fs) return false;
+    if (st.fc !== 'All' && a.category !== st.fc) return false;
+    if (st.fi !== 'All' && !(a.industries || []).includes(st.fi)) return false;
+    if (st.fco.trim()) {
+      var q = st.fco.toLowerCase();
+      var inCo = (a.companies || []).some(function(c) { return c.toLowerCase().includes(q); });
+      if (!inCo && !a.headline.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function render() {
+  var root = document.getElementById('app');
+  clr(root);
+
+  if (!st.token) {
+    var aw = mk('div', 'authwrap');
+    var h = mk('h3'); h.appendChild(tx('Finance News Compiler')); aw.appendChild(h);
+    var p = mk('p'); p.appendChild(tx('Connect your Gmail to automatically pull and extract finance news from CFO Brew, Morning Brew, Journal of Accountancy, and AICPA.')); aw.appendChild(p);
+    var btn = mk('button', 'bp');
+    btn.style.fontSize = '14px'; btn.style.padding = '10px 28px';
+    btn.appendChild(tx('Connect Gmail'));
+    btn.onclick = requestToken;
+    aw.appendChild(btn);
+    root.appendChild(aw);
+    return;
+  }
+
+  var unread = st.articles.filter(function(a) { return !a.read; }).length;
+  var hdr = mk('div', 'header');
+  var hl = mk('div');
+  var h2 = mk('h2'); h2.appendChild(tx('Finance News Compiler')); hl.appendChild(h2);
+  var mt = mk('p', 'meta');
+  mt.appendChild(tx(st.articles.length + ' articles - ' + unread + ' unread' + (st.lastSync ? ' - Last synced ' + st.lastSync : '')));
+  hl.appendChild(mt); hdr.appendChild(hl);
+
+  var hr = mk('div', 'hright');
+  var dayOpts = [{v:'1',l:'Last 24h'},{v:'3',l:'Last 3 days'},{v:'7',l:'Last 7 days'},{v:'14',l:'Last 14 days'},{v:'30',l:'Last 30 days'}];
+  hr.appendChild(mkSelect(dayOpts, String(st.days), function(e) { st.days = +e.target.value; }));
+
+  if (st.articles.length > 0) {
+    var cb = mk('button', 'bd'); cb.appendChild(tx('Clear'));
+    cb.onclick = function() {
+      if (confirm('Clear all saved articles?')) { st.articles = []; st.lastSync = null; saveSt(); render(); }
+    };
+    hr.appendChild(cb);
+  }
+
+  var sb = mk('button', 'bp'); sb.disabled = st.syncing;
+  sb.appendChild(tx(st.syncing ? 'Syncing...' : 'Sync inbox'));
+  sb.onclick = syncInbox;
+  hr.appendChild(sb); hdr.appendChild(hr); root.appendChild(hdr);
+
+  if (st.progress) {
+    var pb = mk('div', 'infobox'); pb.appendChild(tx(st.progress)); root.appendChild(pb);
+  }
+
+  if (st.articles.length > 0) {
+    var usedCats = ['All'].concat(Array.from(new Set(st.articles.map(function(a) { return a.category; }).filter(Boolean))));
+    var fil = mk('div', 'filters');
+    fil.appendChild(mkSelect(['All'].concat(SOURCES), st.fs, function(e) { st.fs = e.target.value; render(); }));
+    fil.appendChild(mkSelect(usedCats, st.fc, function(e) { st.fc = e.target.value; render(); }));
+    fil.appendChild(mkSelect(['All'].concat(INDUSTRIES), st.fi, function(e) { st.fi = e.target.value; render(); }));
+    var ci = document.createElement('input');
+    ci.type = 'text'; ci.placeholder = 'Filter by company...'; ci.value = st.fco;
+    ci.oninput = function(e) { st.fco = e.target.value; render(); };
+    fil.appendChild(ci);
+    if (st.fs !== 'All' || st.fc !== 'All' || st.fi !== 'All' || st.fco) {
+      var cfb = mk('button'); cfb.appendChild(tx('Clear filters'));
+      cfb.onclick = function() { st.fs = 'All'; st.fc = 'All'; st.fi = 'All'; st.fco = ''; render(); };
+      fil.appendChild(cfb);
+    }
+    root.appendChild(fil);
+  }
+
+  var cards = mk('div', 'cards');
+  var items = getFiltered();
+  if (items.length === 0) {
+    var em = mk('div', 'empty');
+    em.appendChild(tx(st.articles.length === 0 ? 'Click Sync inbox to pull finance news from your newsletters.' : 'No articles match your current filters.'));
+    cards.appendChild(em);
+  } else {
+    items.forEach(function(a) { cards.appendChild(renderCard(a)); });
+  }
+  root.appendChild(cards);
+}
+
+function gmailGet(path) {
+  return fetch('https://gmail.googleapis.com/gmail/v1' + path, {
+    headers: { Authorization: 'Bearer ' + st.token }
+  }).then(function(r) {
+    if (!r.ok) throw new Error('Gmail error ' + r.status);
+    return r.json();
+  });
+}
+
+function decodeBody(data) {
+  try { return atob(data.replace(/-/g, '+').replace(/_/g, '/')); } catch(e) { return ''; }
+}
+
+function getBody(payload) {
+  if (!payload) return '';
+  if (payload.body && payload.body.data) return decodeBody(payload.body.data);
+  var parts = payload.parts || [];
+  var i;
+  for (i = 0; i < parts.length; i++) {
+    if (parts[i].mimeType === 'text/plain' && parts[i].body && parts[i].body.data) return decodeBody(parts[i].body.data);
+  }
+  for (i = 0; i < parts.length; i++) {
+    if (parts[i].mimeType === 'text/html' && parts[i].body && parts[i].body.data) {
+      return decodeBody(parts[i].body.data).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+  return '';
+}
+
+function extractNews(body, source, date) {
+  var prompt = PROMPT + '\n\nSource: ' + source + '\nDate: ' + date + '\n\n' + body.slice(0, 8000);
+  return fetch(GEMINI_PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1 }
+    })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    var raw = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts
+      ? d.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim() : '[]';
+    try { return JSON.parse(raw); } catch(e) { return []; }
+  });
+}
+
+function requestToken() {
+  if (!window.google) { alert('Google Sign-In not loaded yet. Please refresh and try again.'); return; }
+  google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: function(resp) {
+      if (resp.access_token) { st.token = resp.access_token; render(); }
+    }
+  }).requestAccessToken();
+}
+
+function syncInbox() {
+  if (!window.google) { alert('Google library not loaded. Please refresh.'); return; }
+  st.syncing = true;
+  st.progress = 'Requesting Gmail access...';
+  render();
+
+  google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    prompt: '',
+    callback: function(resp) {
+      if (resp.error || !resp.access_token) {
+        st.syncing = false;
+        st.progress = 'Gmail auth failed. Please try again.';
+        render();
+        return;
+      }
+      st.token = resp.access_token;
+
+      fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: 'Bearer ' + st.token }
+      }).then(function(r) {
+        if (!r.ok) {
+          st.syncing = false;
+          st.progress = 'Gmail access denied. Please reconnect.';
+          st.token = null;
+          render();
+          return;
+        }
+        st.progress = 'Connected! Searching emails...';
+        render();
+
+        var after = Math.floor((Date.now() - st.days * 86400000) / 1000);
+        var seen = {};
+        st.articles.forEach(function(a) { if (a.emailId) seen[a.emailId] = true; });
+        var newArts = [];
+        var si = 0;
+
+        function nextSrc() {
+          if (si >= SOURCES.length) {
+            st.articles = newArts.concat(st.articles);
+            st.lastSync = new Date().toLocaleString();
+            saveSt();
+            st.syncing = false;
+            st.progress = newArts.length > 0 ? 'Done! Added ' + newArts.length + ' new articles.' : 'No new finance articles found.';
+            render();
+            setTimeout(function() { st.progress = ''; render(); }, 4000);
+            return;
+          }
+          var src = SOURCES[si++];
+          var q = encodeURIComponent(SRC_Q[src] + ' after:' + after);
+          st.progress = 'Searching ' + src + '...'; render();
+          gmailGet('/users/me/messages?maxResults=5&q=' + q).then(function(res) {
+            var msgs = (res.messages || []).filter(function(m) { return !seen[m.id]; });
+            var mi = 0;
+            function nextMsg() {
+              if (mi >= msgs.length) { nextSrc(); return; }
+              var msg = msgs[mi++];
+              st.progress = 'Reading ' + src + ' email...'; render();
+              gmailGet('/users/me/messages/' + msg.id + '?format=full').then(function(full) {
+                var hdrs = (full.payload && full.payload.headers) ? full.payload.headers : [];
+                var dh = hdrs.filter(function(h) { return h.name === 'Date'; })[0];
+                var date = dh ? new Date(dh.value).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+                var body = getBody(full.payload);
+                if (!body.trim()) { nextMsg(); return; }
+                st.progress = 'Extracting news from ' + src + '...'; render();
+                extractNews(body, src, date).then(function(items) {
+                  items.forEach(function(item) {
+                    newArts.push(Object.assign({}, item, {
+                      id: Date.now() + '-' + Math.random().toString(36).slice(2),
+                      emailId: msg.id, source: src, date: date, read: false
+                    }));
+                  });
+                  seen[msg.id] = true;
+                  nextMsg();
+                }).catch(function() { nextMsg(); });
+              }).catch(function() { nextMsg(); });
+            }
+            nextMsg();
+          }).catch(function() { nextSrc(); });
+        }
+        nextSrc();
+      }).catch(function() {
+        st.syncing = false;
+        st.progress = 'Could not connect to Gmail. Please try again.';
+        render();
+      });
+    }
+  }).requestAccessToken();
+}
+
+loadSt();
+render();
+</script>
+</body>
+</html>
